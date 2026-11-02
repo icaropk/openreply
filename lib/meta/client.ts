@@ -1,7 +1,11 @@
 import { getMetaGraphApiVersion, requireEnv } from "@/lib/env";
 
+// Apps created after Meta retired "API setup with Instagram login" only get
+// Unified login, whose system-user tokens (EAA…) work on graph.facebook.com.
+// Set META_GRAPH_HOST=graph.facebook.com for those.
 function instagramGraphBase() {
-  return `https://graph.instagram.com/${getMetaGraphApiVersion()}`;
+  const host = process.env.META_GRAPH_HOST || "graph.instagram.com";
+  return `https://${host}/${getMetaGraphApiVersion()}`;
 }
 
 function facebookGraphBase() {
@@ -664,11 +668,16 @@ export async function getConversationMessages(
   return data.messages?.data ?? [];
 }
 
-export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
-  const url = new URL(`${instagramGraphBase()}/me`);
+// System-user tokens have no Instagram `/me`, so callers holding the account
+// ID pass it. That node has no `user_id` field: its `id` already is that ID.
+export async function getUserInfo(
+  accessToken: string,
+  accountId?: string
+): Promise<InstagramUser> {
+  const url = new URL(`${instagramGraphBase()}/${accountId ?? "me"}`);
   url.searchParams.set(
     "fields",
-    "id,user_id,username,name,profile_picture_url,followers_count"
+    `id,${accountId ? "" : "user_id,"}username,name,profile_picture_url,followers_count`
   );
   url.searchParams.set("access_token", accessToken);
 
@@ -684,9 +693,10 @@ const MEDIA_PAGE_SIZE = 100;
 
 export async function getUserMedia(
   accessToken: string,
-  limit = 25
+  limit = 25,
+  accountId = "me"
 ): Promise<InstagramMedia[]> {
-  const url = new URL(`${instagramGraphBase()}/me/media`);
+  const url = new URL(`${instagramGraphBase()}/${accountId}/media`);
   url.searchParams.set("fields", MEDIA_FIELDS);
   url.searchParams.set("limit", limit.toString());
   url.searchParams.set("access_token", accessToken);
@@ -704,11 +714,12 @@ export async function getUserMedia(
  */
 export async function getAllUserMedia(
   accessToken: string,
-  max = 500
+  max = 500,
+  accountId = "me"
 ): Promise<InstagramMedia[]> {
   const results: InstagramMedia[] = [];
 
-  const first = new URL(`${instagramGraphBase()}/me/media`);
+  const first = new URL(`${instagramGraphBase()}/${accountId}/media`);
   first.searchParams.set("fields", MEDIA_FIELDS);
   first.searchParams.set("limit", String(Math.min(MEDIA_PAGE_SIZE, max)));
   first.searchParams.set("access_token", accessToken);
