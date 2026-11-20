@@ -1,8 +1,10 @@
 import { getRedisConnection } from "@/lib/queue/client";
+import type { AppUsage } from "@/lib/meta/app-usage";
 
 const WORKER_HEALTH_KEY = "health:worker:dm";
 const WORKER_ALERTS_KEY = "alerts:worker:dm";
 const WORKER_HEARTBEAT_TTL_SECONDS = 120;
+const APP_USAGE_KEY = "meta:app-usage";
 
 export interface WorkerHeartbeat {
   status: "running";
@@ -93,4 +95,13 @@ export async function getWorkerAlerts(limit = 10): Promise<WorkerAlert[]> {
   return values
     .map((value) => parseJson<WorkerAlert>(value))
     .filter((value): value is WorkerAlert => Boolean(value));
+}
+
+/** The worker's latest reading of Meta's app-wide quota meter. */
+export async function recordAppUsageReading(usage: AppUsage) {
+  await getRedisConnection().set(APP_USAGE_KEY, JSON.stringify(usage), "EX", 3600);
+}
+
+export async function getAppUsageReading(): Promise<AppUsage | null> {
+  return parseJson<AppUsage>(await getRedisConnection().get(APP_USAGE_KEY));
 }

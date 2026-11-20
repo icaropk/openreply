@@ -4,7 +4,8 @@ import {
   isConfirmedSendRejection,
   isDeliveryUnconfirmed,
 } from "@/lib/instagram/delivery-errors";
-import { claimCommentDelivery, MAX_COMMENT_SEND_ATTEMPTS } from "./comment-delivery";
+import { claimCommentDelivery, MAX_COMMENT_SEND_ATTEMPTS, refundQuotaAttempt } from "./comment-delivery";
+import { delayForUsage, getAppUsage } from "@/lib/meta/app-usage";
 import { createHash } from "node:crypto";
 import { UnrecoverableError, Worker, type Job } from "bullmq";
 import {
@@ -1631,26 +1632,39 @@ async function recordWorkerFailure(
 }
 
 export function createDMWorker(): Worker<DmQueueJob> {
-  // Unified login tokens count against the app-wide Graph limit (code 4), so a
-  // backlog drained at full speed throttles every account. DM_JOBS_PER_MINUTE paces it.
-  const perMinute = Number(process.env.DM_JOBS_PER_MINUTE);
-  // On code 4 the whole app is throttled, so pause every job instead of letting
-  // the rest of the queue burn through the same limit. Normal speed otherwise.
-  const appLimitPauseMs = Number(process.env.DM_APP_LIMIT_PAUSE_MS) || 10 * 60_000;
+  // Pace from Meta's own quota meter (x-app-usage): fast while the hour has
+  // room, slower as it fills, paused near the limit. Every job reserves the
+  // next slot up front, so concurrent jobs can't all slip through one gap.
+  let nextAllowedAt = 0;
   const worker: Worker<DmQueueJob> = new Worker<DmQueueJob>("dm-processing", async (job) => {
+    const wait = nextAllowedAt - Date.now();
+    if (wait > 0) {
+      await worker.rateLimit(wait);
+      throw Worker.RateLimitError();
+    }
+    nextAllowedAt = Date.now() + delayForUsage(getAppUsage()?.pct);
     try {
       await processJob(job);
     } catch (error) {
       if (error instanceof RateLimitError && error.code === 4) {
-        console.warn(`[DM Worker] App rate limit hit, pausing queue ${appLimitPauseMs}ms`);
-        await worker.rateLimit(appLimitPauseMs);
+        // The whole app is throttled: requeue without spending an attempt.
+        const pauseMs = delayForUsage(100);
+        nextAllowedAt = Date.now() + pauseMs;
+        console.warn(`[DM Worker] App rate limit hit, pausing queue ${pauseMs}ms`);
+        if (job.name !== FOLLOWUP_JOB_NAME && job.name !== MESSAGE_JOB_NAME) {
+          await refundQuotaAttempt((job.data as ProcessCommentJob).commentId);
+        }
+        await worker.rateLimit(pauseMs);
+        throw Worker.RateLimitError();
       }
       throw error;
+    } finally {
+      // The call just made refreshed the meter: space the next job by it.
+      nextAllowedAt = Math.max(nextAllowedAt, Date.now() + delayForUsage(getAppUsage()?.pct));
     }
   }, {
     connection: getRedisConnection(),
     concurrency: Number(process.env.DM_WORKER_CONCURRENCY) || 5,
-    ...(perMinute > 0 ? { limiter: { max: perMinute, duration: 60_000 } } : {}),
     settings: {
       backoffStrategy: (attemptsMade: number) =>
         BACKOFF_DELAYS[Math.min(attemptsMade - 1, BACKOFF_DELAYS.length - 1)],

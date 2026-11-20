@@ -46,6 +46,9 @@ import { matchKeywords } from "@/lib/utils/keyword-matcher";
 const LOOKBACK_HOURS = Number(process.env.COMMENT_POLL_LOOKBACK_HOURS ?? 72);
 // Hard cap on how many new comments a single campaign can enqueue per sweep, so
 // a viral post drains gradually instead of bursting into the comment API.
+// Comments arriving by webhook carry no priority, which BullMQ runs first; the
+// sweep's catch-up work waits behind them.
+const SWEEP_JOB_PRIORITY = 10;
 const MAX_NEW_PER_SWEEP = Number(process.env.COMMENT_POLL_MAX_PER_SWEEP ?? 30);
 // For "any post" campaigns, how many recent posts to scan.
 const RECENT_MEDIA_LIMIT = 10;
@@ -287,7 +290,7 @@ async function sweepCampaign({
             ? automation.postId
             : undefined,
         source: "POLLING",
-      });
+      }, { priority: SWEEP_JOB_PRIORITY });
       stat.enqueued += 1;
     }
   }

@@ -121,6 +121,13 @@ vi.mock("@/lib/queue/client", () => ({
   MESSAGE_JOB_NAME: "process-message",
 }));
 
+// Pacing is covered by its own tests below; elsewhere jobs run back to back.
+const { mockDelayForUsage } = vi.hoisted(() => ({ mockDelayForUsage: vi.fn(() => 0) }));
+vi.mock("@/lib/meta/app-usage", () => ({
+  delayForUsage: mockDelayForUsage,
+  getAppUsage: () => null,
+}));
+
 vi.mock("bullmq", () => {
   function MockWorker(_name: string, processor: unknown) {
     (global as Record<string, unknown>).__dmWorkerProcessor = processor;
@@ -128,6 +135,7 @@ vi.mock("bullmq", () => {
     (global as Record<string, unknown>).__dmWorker = worker;
     return worker;
   }
+  MockWorker.RateLimitError = () => new Error("bullmq:rateLimitExceeded");
   return {
     Worker: MockWorker,
     UnrecoverableError: class UnrecoverableError extends Error {
@@ -220,6 +228,7 @@ function createMockPostbackJob(
 }
 
 beforeEach(() => {
+  mockDelayForUsage.mockReset().mockReturnValue(0);
   vi.clearAllMocks();
   mockPrisma.postbackDelivery.create.mockReset().mockResolvedValue({});
   mockPrisma.postbackDelivery.delete.mockReset().mockResolvedValue({});
@@ -488,15 +497,34 @@ describe("DM Worker — Full Pipeline", () => {
     expect(mockSendPrivateReply).not.toHaveBeenCalled();
   });
 
-  it("pauses the whole queue when Meta reports the app-wide limit (code 4)", async () => {
+  it("pauses the queue on the app-wide limit (code 4) without spending the attempt", async () => {
+    mockDelayForUsage.mockImplementation((pct?: number) => (pct != null && pct >= 90 ? 5 * 60_000 : 0));
     const error = Object.assign(new RateLimitError("limit"), { code: 4 });
     mockSendPrivateReply.mockRejectedValue(error);
 
     const processor = getProcessor();
 
-    await expect(processor(createMockJob())).rejects.toThrow("limit");
+    await expect(processor(createMockJob())).rejects.toThrow("bullmq:rateLimitExceeded");
     const worker = (global as Record<string, unknown>).__dmWorker as { rateLimit: ReturnType<typeof vi.fn> };
-    expect(worker.rateLimit).toHaveBeenCalledWith(10 * 60_000);
+    expect(worker.rateLimit).toHaveBeenCalledWith(5 * 60_000);
+    expect(mockPrisma.dmLog.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ commentId: "comment_555" }),
+        data: { attempts: { decrement: 1 } },
+      })
+    );
+  });
+
+  it("spaces jobs: one arriving inside the gap is put back without running", async () => {
+    mockDelayForUsage.mockReturnValue(4_000);
+    const processor = getProcessor();
+    await processor(createMockJob());
+    mockSendPrivateReply.mockClear();
+
+    await expect(processor(createMockJob())).rejects.toThrow("bullmq:rateLimitExceeded");
+    const worker = (global as Record<string, unknown>).__dmWorker as { rateLimit: ReturnType<typeof vi.fn> };
+    expect(worker.rateLimit).toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
   });
 
   it("should log FAILED, release usage, and re-throw when private reply sending fails", async () => {

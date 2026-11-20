@@ -468,5 +468,8 @@
   "{name} Campaign Report": "Отчёт по кампании «{name}»",
   "{type} post": "Пост {type}",
   "”": "»",
-  "← Campaigns": "← Кампании"
+  "← Campaigns": "← Кампании",
+  "Meta quota used": "Использовано квоты Meta",
+  "Pace: {perMinute} DMs per minute": "Темп: {perMinute} DM в минуту",
+  "No reading yet": "Данных пока нет"
 }

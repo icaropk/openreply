@@ -468,5 +468,8 @@
   "{name} Campaign Report": "{name} 活動報表",
   "{type} post": "{type} 貼文",
   "”": "」",
-  "← Campaigns": "← 返回活動列表"
+  "← Campaigns": "← 返回活動列表",
+  "Meta quota used": "Meta 配額使用率",
+  "Pace: {perMinute} DMs per minute": "速度：每分鐘 {perMinute} 則私訊",
+  "No reading yet": "尚無讀數"
 }

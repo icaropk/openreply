@@ -33,3 +33,15 @@ export async function claimCommentDelivery(
   });
   return result.count === 1;
 }
+
+/**
+ * Give back the attempt a send spent when Meta refused it for the app-wide
+ * quota (code 4): the refusal says nothing about this comment, and the job is
+ * put back in the queue to run again once the meter has room.
+ */
+export async function refundQuotaAttempt(commentId: string): Promise<void> {
+  await prisma.dmLog.updateMany({
+    where: { commentId, attempts: { gt: 0 }, errorMessage: { contains: "(#4)" } },
+    data: { attempts: { decrement: 1 } },
+  });
+}

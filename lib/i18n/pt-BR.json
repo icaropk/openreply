@@ -468,5 +468,8 @@
   "{name} Campaign Report": "Relatório da campanha {name}",
   "{type} post": "Publicação {type}",
   "”": "”",
-  "← Campaigns": "← Campanhas"
+  "← Campaigns": "← Campanhas",
+  "Meta quota used": "Cota da Meta usada",
+  "Pace: {perMinute} DMs per minute": "Ritmo: {perMinute} DMs por minuto",
+  "No reading yet": "Sem leitura ainda"
 }

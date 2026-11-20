@@ -1,4 +1,5 @@
 import { getMetaGraphApiVersion, requireEnv } from "@/lib/env";
+import { recordAppUsage } from "@/lib/meta/app-usage";
 
 // Apps created after Meta retired "API setup with Instagram login" only get
 // Unified login, whose system-user tokens (EAA…) work on graph.facebook.com.
@@ -130,6 +131,7 @@ interface TokenResponse {
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
+  recordAppUsage(response.headers?.get?.("x-app-usage"));
   const data = await response.json();
 
   if (!response.ok || (data as GraphApiError).error) {

@@ -1,10 +1,14 @@
 import { createDMWorker } from "@/lib/queue/dm-worker";
-import { recordWorkerHeartbeat } from "@/lib/ops/worker-health";
+import { recordAppUsageReading, recordWorkerHeartbeat } from "@/lib/ops/worker-health";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
 import { attachPendingNextReels } from "@/lib/automation/attach-next-reel";
 import os from "node:os";
+import { getAppUsage, onAppUsage, SWEEP_SKIP_PCT } from "@/lib/meta/app-usage";
 
 const worker = createDMWorker();
+
+// Share the quota meter with the web app's Diagnostics page.
+onAppUsage((usage) => void recordAppUsageReading(usage).catch(() => {}));
 const startedAt = new Date().toISOString();
 const HEARTBEAT_INTERVAL_MS = 30_000;
 // Polling safety net for comments that webhooks miss. Runs in the worker because
@@ -36,6 +40,11 @@ async function poll() {
     const attached = await attachPendingNextReels();
     if (attached.bound > 0 || attached.failedAccounts > 0) {
       console.log("[DM Worker] Next-reel attachment:", attached);
+    }
+    const pct = getAppUsage()?.pct ?? 0;
+    if (pct >= SWEEP_SKIP_PCT) {
+      console.log(`[DM Worker] Skipping comment sweep: Meta app usage at ${pct}%`);
+      return;
     }
     await reconcileComments();
   } catch (error) {

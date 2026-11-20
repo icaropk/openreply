@@ -3,9 +3,11 @@
 import { useI18n } from "@/lib/i18n/provider";
 import { useEffect, useState } from "react";
 import StatusBadge from "@/components/status-badge";
+import { delayForUsage } from "@/lib/meta/app-usage";
 
 interface DiagnosticsData {
   queueCounts: Record<string, number>;
+  appUsage: { pct: number; at: number } | null;
   workerHealth: {
     healthy: boolean;
     ageMs: number | null;
@@ -156,6 +158,25 @@ export default function DiagnosticsPage() {
             {workerAgeSeconds == null
               ? t("No heartbeat found")
               : t("Last heartbeat {seconds}s ago", { seconds: workerAgeSeconds })}
+          </p>
+        </div>
+        <div className="panel rounded p-4 sm:p-5">
+          <p className="text-xs font-semibold uppercase text-muted">
+            {t("Meta quota used")}
+          </p>
+          <p
+            className={`mt-3 text-2xl font-bold ${
+              (data?.appUsage?.pct ?? 0) >= 75 ? "text-warning" : "text-foreground"
+            }`}
+          >
+            {data?.appUsage ? `${data.appUsage.pct}%` : "—"}
+          </p>
+          <p className="mt-2 text-xs text-muted">
+            {data?.appUsage
+              ? t("Pace: {perMinute} DMs per minute", {
+                  perMinute: Math.round((60_000 / delayForUsage(data.appUsage.pct)) * 10) / 10,
+                })
+              : t("No reading yet")}
           </p>
         </div>
         {["waiting", "active", "delayed", "failed"].map((key) => (
