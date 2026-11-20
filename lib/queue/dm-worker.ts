@@ -1606,9 +1606,13 @@ async function recordWorkerFailure(
 }
 
 export function createDMWorker(): Worker<DmQueueJob> {
+  // Unified login tokens count against the app-wide Graph limit (code 4), so a
+  // backlog drained at full speed throttles every account. DM_JOBS_PER_MINUTE paces it.
+  const perMinute = Number(process.env.DM_JOBS_PER_MINUTE);
   const worker = new Worker<DmQueueJob>("dm-processing", processJob, {
     connection: getRedisConnection(),
-    concurrency: 5,
+    concurrency: Number(process.env.DM_WORKER_CONCURRENCY) || 5,
+    ...(perMinute > 0 ? { limiter: { max: perMinute, duration: 60_000 } } : {}),
     settings: {
       backoffStrategy: (attemptsMade: number) =>
         BACKOFF_DELAYS[Math.min(attemptsMade - 1, BACKOFF_DELAYS.length - 1)],
