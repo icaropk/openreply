@@ -41,9 +41,11 @@ async function poll() {
     if (attached.bound > 0 || attached.failedAccounts > 0) {
       console.log("[DM Worker] Next-reel attachment:", attached);
     }
-    const pct = getAppUsage()?.pct ?? 0;
-    if (pct >= SWEEP_SKIP_PCT) {
-      console.log(`[DM Worker] Skipping comment sweep: Meta app usage at ${pct}%`);
+    // No reading yet (fresh boot) counts as unknown: a full sweep is the
+    // heaviest thing the worker does, so wait for the first DM to read the meter.
+    const pct = getAppUsage()?.pct;
+    if (pct == null || pct >= SWEEP_SKIP_PCT) {
+      console.log(`[DM Worker] Skipping comment sweep: Meta app usage at ${pct ?? "unknown"}%`);
       return;
     }
     await reconcileComments();

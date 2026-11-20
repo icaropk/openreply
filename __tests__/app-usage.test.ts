@@ -16,10 +16,10 @@ describe("Meta app usage meter", () => {
 
   it("slows down as the hour fills and pauses near the limit", () => {
     expect(delayForUsage(undefined)).toBe(4_000);
-    expect(delayForUsage(49)).toBe(4_000);
-    expect(delayForUsage(60)).toBe(10_000);
-    expect(delayForUsage(80)).toBe(30_000);
-    expect(delayForUsage(90)).toBe(5 * 60_000);
+    expect(delayForUsage(74)).toBe(4_000);
+    expect(delayForUsage(80)).toBe(6_000);
+    expect(delayForUsage(95)).toBe(15_000);
+    expect(delayForUsage(100)).toBe(5 * 60_000);
     expect(delayForUsage(177)).toBe(5 * 60_000);
   });
 });

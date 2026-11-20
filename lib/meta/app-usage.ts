@@ -45,9 +45,9 @@ export function onAppUsage(fn: ((usage: AppUsage) => void) | null): void {
  * (the next job after it reads the meter again).
  */
 export function delayForUsage(pct: number | undefined): number {
-  if (pct == null || pct < 50) return 4_000; // 15/min
-  if (pct < 75) return 10_000; // 6/min
-  if (pct < 90) return 30_000; // 2/min
+  if (pct == null || pct < 75) return 4_000; // 15/min
+  if (pct < 90) return 6_000; // 10/min
+  if (pct < 100) return 15_000; // 4/min
   return 5 * 60_000;
 }
 
