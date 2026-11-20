@@ -124,10 +124,9 @@ vi.mock("@/lib/queue/client", () => ({
 vi.mock("bullmq", () => {
   function MockWorker(_name: string, processor: unknown) {
     (global as Record<string, unknown>).__dmWorkerProcessor = processor;
-    return {
-      on: vi.fn(),
-      close: vi.fn(),
-    };
+    const worker = { on: vi.fn(), close: vi.fn(), rateLimit: vi.fn() };
+    (global as Record<string, unknown>).__dmWorker = worker;
+    return worker;
   }
   return {
     Worker: MockWorker,
@@ -487,6 +486,17 @@ describe("DM Worker — Full Pipeline", () => {
       })
     );
     expect(mockSendPrivateReply).not.toHaveBeenCalled();
+  });
+
+  it("pauses the whole queue when Meta reports the app-wide limit (code 4)", async () => {
+    const error = Object.assign(new RateLimitError("limit"), { code: 4 });
+    mockSendPrivateReply.mockRejectedValue(error);
+
+    const processor = getProcessor();
+
+    await expect(processor(createMockJob())).rejects.toThrow("limit");
+    const worker = (global as Record<string, unknown>).__dmWorker as { rateLimit: ReturnType<typeof vi.fn> };
+    expect(worker.rateLimit).toHaveBeenCalledWith(10 * 60_000);
   });
 
   it("should log FAILED, release usage, and re-throw when private reply sending fails", async () => {

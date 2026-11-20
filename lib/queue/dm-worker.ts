@@ -1609,7 +1609,20 @@ export function createDMWorker(): Worker<DmQueueJob> {
   // Unified login tokens count against the app-wide Graph limit (code 4), so a
   // backlog drained at full speed throttles every account. DM_JOBS_PER_MINUTE paces it.
   const perMinute = Number(process.env.DM_JOBS_PER_MINUTE);
-  const worker = new Worker<DmQueueJob>("dm-processing", processJob, {
+  // On code 4 the whole app is throttled, so pause every job instead of letting
+  // the rest of the queue burn through the same limit. Normal speed otherwise.
+  const appLimitPauseMs = Number(process.env.DM_APP_LIMIT_PAUSE_MS) || 10 * 60_000;
+  const worker: Worker<DmQueueJob> = new Worker<DmQueueJob>("dm-processing", async (job) => {
+    try {
+      await processJob(job);
+    } catch (error) {
+      if (error instanceof RateLimitError && error.code === 4) {
+        console.warn(`[DM Worker] App rate limit hit, pausing queue ${appLimitPauseMs}ms`);
+        await worker.rateLimit(appLimitPauseMs);
+      }
+      throw error;
+    }
+  }, {
     connection: getRedisConnection(),
     concurrency: Number(process.env.DM_WORKER_CONCURRENCY) || 5,
     ...(perMinute > 0 ? { limiter: { max: perMinute, duration: 60_000 } } : {}),
