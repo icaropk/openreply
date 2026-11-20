@@ -95,7 +95,17 @@ function isVideoLike(media: InstagramMedia): boolean {
   return media.media_product_type === "REELS" || media.media_type === "VIDEO";
 }
 
+const OVERVIEW_DISABLED = true;
+
 export async function GET(request: NextRequest) {
+  // Disabled in this fork: one load pulls up to 500 posts plus an insights call
+  // each, which drains the app-wide Meta quota (code 4) that DMs depend on.
+  if (OVERVIEW_DISABLED) {
+    return NextResponse.json(
+      { success: false, error: "Overview is disabled on this instance" },
+      { status: 404 }
+    );
+  }
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) {
     return NextResponse.json(
