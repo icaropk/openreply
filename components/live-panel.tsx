@@ -91,7 +91,10 @@ export default function LivePanel() {
   const sentPerHour = Object.values(data.byAccount).reduce((sum, c) => sum + (c.SENT ?? 0), 0);
   const inPerHour = data.commentsByPost.reduce((sum, row) => sum + row.count, 0);
   const total = recent + backlog;
-  const hoursToEmpty = sentPerHour ? total / sentPerHour : null;
+  // Comments keep arriving while the queue drains, so it empties at the net rate.
+  const netPerHour = sentPerHour - inPerHour;
+  const hoursToEmpty = netPerHour > 0 ? total / netPerHour : null;
+  const hoursIfStopped = sentPerHour ? total / sentPerHour : null;
   const readingAge = data.usage ? Math.round((Date.parse(data.at) - data.usage.at) / 60_000) : null;
 
   return (
@@ -138,10 +141,10 @@ export default function LivePanel() {
             {" · "}
             {total === 0
               ? t("Queue empty")
-              : hoursToEmpty == null
+              : hoursIfStopped == null
                 ? t("No sends in the last hour")
-                : inPerHour > sentPerHour
-                  ? t("Not emptying at this pace ({hours}h if comments stopped)", { hours: hoursToEmpty.toFixed(1) })
+                : hoursToEmpty == null
+                  ? t("Not emptying at this pace ({hours}h if comments stopped)", { hours: hoursIfStopped.toFixed(1) })
                   : t("Empty in about {hours}h", { hours: hoursToEmpty.toFixed(1) })}
           </p>
           <p className="text-xs font-semibold uppercase text-muted">{t("Last hour by account")}</p>
