@@ -14,12 +14,12 @@ describe("Meta app usage meter", () => {
     expect(getAppUsage()?.pct).toBe(20);
   });
 
-  it("slows down as the hour fills and pauses near the limit", () => {
+  it("slows down as the hour fills and retries each minute past the limit", () => {
     expect(delayForUsage(undefined)).toBe(4_000);
-    expect(delayForUsage(74)).toBe(4_000);
-    expect(delayForUsage(80)).toBe(6_000);
-    expect(delayForUsage(95)).toBe(15_000);
-    expect(delayForUsage(100)).toBe(5 * 60_000);
-    expect(delayForUsage(177)).toBe(5 * 60_000);
+    expect(delayForUsage(59)).toBe(4_000);
+    expect(delayForUsage(70)).toBe(30_000);
+    expect(delayForUsage(90)).toBe(70_000);
+    expect(delayForUsage(98)).toBe(60_000);
+    expect(delayForUsage(177)).toBe(60_000);
   });
 });

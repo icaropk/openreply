@@ -40,15 +40,18 @@ export function onAppUsage(fn: ((usage: AppUsage) => void) | null): void {
 }
 
 /**
- * Gap to leave before the next DM job, from the meter's last reading. Fast
- * while there is room, slower as the hour fills, and a pause near the limit
- * (the next job after it reads the meter again).
+ * Gap to leave before the next DM job, from the meter's last reading. A DM
+ * costs ~2% of the hourly total_time budget (2.3s at Meta, measured), so the
+ * hour sustains ~1 DM per 70s: burst while there is room, hold that pace near
+ * the top, and past it retry every minute, since a code 4 refusal is cheap and
+ * is requeued without spending an attempt, while a long pause wastes the room
+ * that frees as old calls leave the window.
  */
 export function delayForUsage(pct: number | undefined): number {
-  if (pct == null || pct < 75) return 4_000; // 15/min
-  if (pct < 90) return 6_000; // 10/min
-  if (pct < 100) return 15_000; // 4/min
-  return 5 * 60_000;
+  if (pct == null || pct < 60) return 4_000; // 15/min
+  if (pct < 85) return 30_000; // 2/min
+  if (pct < 98) return 70_000; // sustainable
+  return 60_000;
 }
 
 let latencyListener: ((kind: string, ms: number) => void) | null = null;
