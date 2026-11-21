@@ -116,3 +116,17 @@ export async function recordCallLatencyReading(kind: string, ms: number) {
     .expire(CALL_LATENCY_KEY, 2 * 24 * 3600)
     .exec();
 }
+
+/** Average Graph call time by kind, from recordCallLatencyReading. */
+export async function getCallLatency(): Promise<
+  Array<{ kind: string; calls: number; avgMs: number }>
+> {
+  const raw = await getRedisConnection().hgetall(CALL_LATENCY_KEY);
+  const kinds = new Set(Object.keys(raw).map((k) => k.slice(0, k.lastIndexOf(":"))));
+  return [...kinds]
+    .map((kind) => {
+      const calls = Number(raw[`${kind}:n`]) || 0;
+      return { kind, calls, avgMs: calls ? Math.round(Number(raw[`${kind}:ms`]) / calls) : 0 };
+    })
+    .sort((a, b) => b.calls * b.avgMs - a.calls * a.avgMs);
+}

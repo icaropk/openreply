@@ -3,6 +3,7 @@
 import { useI18n } from "@/lib/i18n/provider";
 import { useEffect, useState } from "react";
 import StatusBadge from "@/components/status-badge";
+import LivePanel from "@/components/live-panel";
 import { delayForUsage } from "@/lib/meta/app-usage";
 
 interface DiagnosticsData {
@@ -141,6 +142,8 @@ export default function DiagnosticsPage() {
           {t("Refresh")}
         </button>
       </div>
+
+      <LivePanel />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
         <div className="panel rounded p-4 sm:p-5">
