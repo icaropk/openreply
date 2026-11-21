@@ -40,17 +40,15 @@ export function onAppUsage(fn: ((usage: AppUsage) => void) | null): void {
 }
 
 /**
- * Gap to leave before the next DM job, from the meter's last reading. A DM
- * costs ~2% of the hourly total_time budget (2.3s at Meta, measured), so the
- * hour sustains ~1 DM per 70s: burst while there is room, hold that pace near
- * the top, and past it retry every minute, since a code 4 refusal is cheap and
- * is requeued without spending an attempt, while a long pause wastes the room
- * that frees as old calls leave the window.
+ * Gap to leave before the next DM job, from the meter's last reading. Meta's
+ * budget is a rolling hour: room left unused expires, so the most DMs per hour
+ * come from sending fast while there is room and, at the top, taking each slot
+ * as old calls leave the window. A DM costs ~2.3s of total_time (~2%), so the
+ * hour holds ~50; a code 4 refusal is cheap and requeued without spending an
+ * attempt, which makes a retry each minute at the top cheaper than idling.
  */
 export function delayForUsage(pct: number | undefined): number {
-  if (pct == null || pct < 60) return 4_000; // 15/min
-  if (pct < 85) return 30_000; // 2/min
-  if (pct < 98) return 70_000; // sustainable
+  if (pct == null || pct < 97) return 4_000; // 15/min
   return 60_000;
 }
 
