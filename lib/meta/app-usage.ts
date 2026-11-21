@@ -55,8 +55,16 @@ export function delayForUsage(pct: number | undefined): number {
 let latencyListener: ((kind: string, ms: number) => void) | null = null;
 
 /** How long one Graph call took, by kind, to learn which calls fill total_time. */
+let callCount = 0;
+
 export function recordCallLatency(kind: string, ms: number): void {
+  callCount++;
   latencyListener?.(kind, ms);
+}
+
+/** Graph calls made by this process so far: tells a job that called Meta from one that didn't. */
+export function getCallCount(): number {
+  return callCount;
 }
 
 export function onCallLatency(fn: ((kind: string, ms: number) => void) | null): void {

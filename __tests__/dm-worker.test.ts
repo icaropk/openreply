@@ -123,9 +123,11 @@ vi.mock("@/lib/queue/client", () => ({
 
 // Pacing is covered by its own tests below; elsewhere jobs run back to back.
 const { mockDelayForUsage } = vi.hoisted(() => ({ mockDelayForUsage: vi.fn(() => 0) }));
+const callCounter = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/lib/meta/app-usage", () => ({
   delayForUsage: mockDelayForUsage,
   getAppUsage: () => null,
+  getCallCount: () => callCounter.n,
 }));
 
 vi.mock("bullmq", () => {
@@ -515,8 +517,30 @@ describe("DM Worker — Full Pipeline", () => {
     );
   });
 
+  it("frees the slot at once when a job never reached Meta (dedup)", async () => {
+    mockDelayForUsage.mockReturnValue(60_000);
+    mockPrisma.dmLog.findFirst.mockImplementation(
+      async (args: { where?: { status?: string; commenterId?: string } } = {}) =>
+        args.where?.status === "SENT" && args.where.commenterId ? { id: "earlier" } : null
+    );
+    const processor = getProcessor();
+    await processor(createMockJob());
+    mockPrisma.dmLog.findFirst.mockResolvedValue(null);
+    mockSendPrivateReply.mockImplementation(async () => {
+      callCounter.n++;
+      return { recipient_id: "r", message_id: "m" };
+    });
+
+    await processor(createMockJob());
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+  });
+
   it("spaces jobs: one arriving inside the gap is put back without running", async () => {
     mockDelayForUsage.mockReturnValue(4_000);
+    mockSendPrivateReply.mockImplementation(async () => {
+      callCounter.n++;
+      return { recipient_id: "r", message_id: "m" };
+    });
     const processor = getProcessor();
     await processor(createMockJob());
     mockSendPrivateReply.mockClear();

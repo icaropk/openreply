@@ -5,7 +5,7 @@ import {
   isDeliveryUnconfirmed,
 } from "@/lib/instagram/delivery-errors";
 import { claimCommentDelivery, MAX_COMMENT_SEND_ATTEMPTS, refundQuotaAttempt } from "./comment-delivery";
-import { delayForUsage, getAppUsage } from "@/lib/meta/app-usage";
+import { delayForUsage, getAppUsage, getCallCount } from "@/lib/meta/app-usage";
 import { createHash } from "node:crypto";
 import { UnrecoverableError, Worker, type Job } from "bullmq";
 import {
@@ -1642,6 +1642,8 @@ export function createDMWorker(): Worker<DmQueueJob> {
       await worker.rateLimit(wait);
       throw Worker.RateLimitError();
     }
+    const slotBefore = nextAllowedAt;
+    const callsBefore = getCallCount();
     nextAllowedAt = Date.now() + delayForUsage(getAppUsage()?.pct);
     try {
       await processJob(job);
@@ -1659,8 +1661,14 @@ export function createDMWorker(): Worker<DmQueueJob> {
       }
       throw error;
     } finally {
-      // The call just made refreshed the meter: space the next job by it.
-      nextAllowedAt = Math.max(nextAllowedAt, Date.now() + delayForUsage(getAppUsage()?.pct));
+      if (getCallCount() === callsBefore) {
+        // Dedup, no keyword match and the like never reached Meta: hand the
+        // slot straight to the next job instead of idling a whole gap.
+        nextAllowedAt = slotBefore;
+      } else {
+        // The call just made refreshed the meter: space the next job by it.
+        nextAllowedAt = Math.max(nextAllowedAt, Date.now() + delayForUsage(getAppUsage()?.pct));
+      }
     }
   }, {
     connection: getRedisConnection(),
