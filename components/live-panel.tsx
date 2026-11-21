@@ -86,6 +86,12 @@ export default function LivePanel() {
   const recent = (data.queue.waiting ?? 0) + (data.queue.active ?? 0);
   const backlog = (data.queue.prioritized ?? 0) + (data.queue.delayed ?? 0);
   const pace = data.usage ? Math.round((60_000 / delayForUsage(data.usage.pct)) * 10) / 10 : null;
+  // Drain estimate from the last hour: comments on campaign posts in (an upper
+  // bound: not every comment has the keyword) and DMs sent out.
+  const sentPerHour = Object.values(data.byAccount).reduce((sum, c) => sum + (c.SENT ?? 0), 0);
+  const inPerHour = data.commentsByPost.reduce((sum, row) => sum + row.count, 0);
+  const total = recent + backlog;
+  const hoursToEmpty = sentPerHour ? total / sentPerHour : null;
   const readingAge = data.usage ? Math.round((Date.parse(data.at) - data.usage.at) / 60_000) : null;
 
   return (
@@ -127,6 +133,17 @@ export default function LivePanel() {
               <p className="text-xs text-muted">{t("Catch-up and retries")}</p>
             </div>
           </div>
+          <p className="text-xs text-muted">
+            {t("In ~{in}/h · out {out}/h", { in: inPerHour, out: sentPerHour })}
+            {" · "}
+            {total === 0
+              ? t("Queue empty")
+              : hoursToEmpty == null
+                ? t("No sends in the last hour")
+                : inPerHour > sentPerHour
+                  ? t("Not emptying at this pace ({hours}h if comments stopped)", { hours: hoursToEmpty.toFixed(1) })
+                  : t("Empty in about {hours}h", { hours: hoursToEmpty.toFixed(1) })}
+          </p>
           <p className="text-xs font-semibold uppercase text-muted">{t("Last hour by account")}</p>
           <ul className="space-y-1 text-sm">
             {Object.entries(data.byAccount).map(([account, counts]) => (

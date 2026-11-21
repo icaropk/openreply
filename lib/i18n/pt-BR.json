@@ -491,5 +491,10 @@
   "No DMs sent in the last hour.": "Nenhuma DM enviada na última hora.",
   "Meta response time by call type": "Tempo de resposta da Meta por tipo de chamada",
   "Call type": "Tipo de chamada",
-  "Average": "Média"
+  "Average": "Média",
+  "In ~{in}/h · out {out}/h": "Entrando ~{in}/h · saindo {out}/h",
+  "Queue empty": "Fila vazia",
+  "No sends in the last hour": "Nenhum envio na última hora",
+  "Not emptying at this pace ({hours}h if comments stopped)": "Não zera neste ritmo ({hours}h se os comentários parassem)",
+  "Empty in about {hours}h": "Zera em cerca de {hours}h"
 }
