@@ -1,14 +1,15 @@
 import { createDMWorker } from "@/lib/queue/dm-worker";
-import { recordAppUsageReading, recordWorkerHeartbeat } from "@/lib/ops/worker-health";
+import { recordAppUsageReading, recordCallLatencyReading, recordWorkerHeartbeat } from "@/lib/ops/worker-health";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
 import { attachPendingNextReels } from "@/lib/automation/attach-next-reel";
 import os from "node:os";
-import { getAppUsage, onAppUsage, SWEEP_SKIP_PCT } from "@/lib/meta/app-usage";
+import { getAppUsage, onAppUsage, onCallLatency, SWEEP_SKIP_PCT } from "@/lib/meta/app-usage";
 
 const worker = createDMWorker();
 
 // Share the quota meter with the web app's Diagnostics page.
 onAppUsage((usage) => void recordAppUsageReading(usage).catch(() => {}));
+onCallLatency((kind, ms) => void recordCallLatencyReading(kind, ms).catch(() => {}));
 const startedAt = new Date().toISOString();
 const HEARTBEAT_INTERVAL_MS = 30_000;
 // Polling safety net for comments that webhooks miss. Runs in the worker because

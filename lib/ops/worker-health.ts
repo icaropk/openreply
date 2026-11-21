@@ -5,6 +5,7 @@ const WORKER_HEALTH_KEY = "health:worker:dm";
 const WORKER_ALERTS_KEY = "alerts:worker:dm";
 const WORKER_HEARTBEAT_TTL_SECONDS = 120;
 const APP_USAGE_KEY = "meta:app-usage";
+const CALL_LATENCY_KEY = "meta:latency";
 
 export interface WorkerHeartbeat {
   status: "running";
@@ -104,4 +105,14 @@ export async function recordAppUsageReading(usage: AppUsage) {
 
 export async function getAppUsageReading(): Promise<AppUsage | null> {
   return parseJson<AppUsage>(await getRedisConnection().get(APP_USAGE_KEY));
+}
+
+/** Running count and total ms of Graph calls by kind (see callKind). */
+export async function recordCallLatencyReading(kind: string, ms: number) {
+  await getRedisConnection()
+    .multi()
+    .hincrby(CALL_LATENCY_KEY, `${kind}:n`, 1)
+    .hincrby(CALL_LATENCY_KEY, `${kind}:ms`, ms)
+    .expire(CALL_LATENCY_KEY, 2 * 24 * 3600)
+    .exec();
 }

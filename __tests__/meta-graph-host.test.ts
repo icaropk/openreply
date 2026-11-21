@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getUserInfo, getUserMedia, sendPrivateReply } from "../lib/meta/client";
+import { callKind, getUserInfo, getUserMedia, sendPrivateReply } from "../lib/meta/client";
 
 /**
  * Unified login system-user tokens only work on graph.facebook.com and have no
@@ -37,5 +37,22 @@ describe("META_GRAPH_HOST", () => {
     const parsed = new URL(url());
     expect(parsed.pathname).toMatch(/\/1784$/);
     expect(parsed.searchParams.get("fields")).not.toContain("user_id");
+  });
+});
+
+describe("callKind", () => {
+  const msg = (body: object) => ({ method: "POST", body: JSON.stringify(body) });
+  const url = "https://graph.facebook.com/v25.0/1784/messages";
+
+  it("tells the DM shapes apart", () => {
+    expect(callKind(url, msg({ recipient: { comment_id: "c" }, message: { text: "hi" } }))).toBe("private_reply_text");
+    expect(callKind(url, msg({ recipient: { comment_id: "c" }, message: { attachment: { payload: { buttons: [{ type: "web_url" }] } } } }))).toBe("private_reply_link_button");
+    expect(callKind(url, msg({ recipient: { id: "u" }, message: { attachment: { payload: { buttons: [{ type: "postback" }] } } } }))).toBe("dm_postback_button");
+  });
+
+  it("names reads and replies by path", () => {
+    expect(callKind("https://graph.facebook.com/v25.0/m1/comments?x=1")).toBe("read_comments");
+    expect(callKind("https://graph.facebook.com/v25.0/c1/replies", { method: "POST" })).toBe("comment_reply");
+    expect(callKind("not a url")).toBe("other");
   });
 });

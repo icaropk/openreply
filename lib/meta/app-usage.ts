@@ -51,5 +51,16 @@ export function delayForUsage(pct: number | undefined): number {
   return 5 * 60_000;
 }
 
+let latencyListener: ((kind: string, ms: number) => void) | null = null;
+
+/** How long one Graph call took, by kind, to learn which calls fill total_time. */
+export function recordCallLatency(kind: string, ms: number): void {
+  latencyListener?.(kind, ms);
+}
+
+export function onCallLatency(fn: ((kind: string, ms: number) => void) | null): void {
+  latencyListener = fn;
+}
+
 /** At or above this the reconciler skips its comment sweep: reads are heavy. */
 export const SWEEP_SKIP_PCT = 75;
