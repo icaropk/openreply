@@ -496,5 +496,10 @@
   "Queue empty": "Fila vazia",
   "No sends in the last hour": "Nenhum envio na última hora",
   "Not emptying at this pace ({hours}h if comments stopped)": "Não zera neste ritmo ({hours}h se os comentários parassem)",
-  "Empty in about {hours}h": "Zera em cerca de {hours}h"
+  "Empty in about {hours}h": "Zera em cerca de {hours}h",
+  "Time to DM": "Tempo até a DM",
+  "No DMs in the last 30 min": "Nenhuma DM nos últimos 30 min",
+  "Median {median} min · 90% within {p90} min": "Mediana {median} min · 90% em até {p90} min",
+  "Commenting now: ~{minutes} min": "Quem comenta agora: ~{minutes} min",
+  "oldest waiting {minutes} min": "o mais antigo espera há {minutes} min"
 }

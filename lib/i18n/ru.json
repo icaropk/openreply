@@ -496,5 +496,10 @@
   "Queue empty": "Очередь пуста",
   "No sends in the last hour": "За последний час отправок не было",
   "Not emptying at this pace ({hours}h if comments stopped)": "При таком темпе не опустеет ({hours} ч, если комментарии прекратятся)",
-  "Empty in about {hours}h": "Опустеет примерно через {hours} ч"
+  "Empty in about {hours}h": "Опустеет примерно через {hours} ч",
+  "Time to DM": "Время до DM",
+  "No DMs in the last 30 min": "За последние 30 мин DM не было",
+  "Median {median} min · 90% within {p90} min": "Медиана {median} мин · 90% за {p90} мин",
+  "Commenting now: ~{minutes} min": "Кто комментирует сейчас: ~{minutes} мин",
+  "oldest waiting {minutes} min": "самый старый ждёт {minutes} мин"
 }

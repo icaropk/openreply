@@ -496,5 +496,10 @@
   "Queue empty": "佇列已清空",
   "No sends in the last hour": "過去一小時沒有傳送",
   "Not emptying at this pace ({hours}h if comments stopped)": "以目前速度不會清空（若停止留言需 {hours} 小時）",
-  "Empty in about {hours}h": "約 {hours} 小時後清空"
+  "Empty in about {hours}h": "約 {hours} 小時後清空",
+  "Time to DM": "收到私訊所需時間",
+  "No DMs in the last 30 min": "過去 30 分鐘沒有私訊",
+  "Median {median} min · 90% within {p90} min": "中位數 {median} 分鐘 · 90% 在 {p90} 分鐘內",
+  "Commenting now: ~{minutes} min": "現在留言：約 {minutes} 分鐘",
+  "oldest waiting {minutes} min": "最久等待 {minutes} 分鐘"
 }

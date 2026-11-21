@@ -12,6 +12,7 @@ interface LiveData {
   sentByCampaign: Array<{ name: string; count: number }>;
   commentsByPost: Array<{ name: string; count: number }>;
   latency: Array<{ kind: string; calls: number; avgMs: number }>;
+  dmWait: { samples: number; medianMin: number | null; p90Min: number | null; oldestWaitingMin: number | null };
 }
 
 const REFRESH_MS = 15_000;
@@ -146,6 +147,18 @@ export default function LivePanel() {
                 : hoursToEmpty == null
                   ? t("Not emptying at this pace ({hours}h if comments stopped)", { hours: hoursIfStopped.toFixed(1) })
                   : t("Empty in about {hours}h", { hours: hoursToEmpty.toFixed(1) })}
+          </p>
+          <p className="text-xs font-semibold uppercase text-muted">{t("Time to DM")}</p>
+          <p className="text-sm text-foreground">
+            {data.dmWait.medianMin == null
+              ? t("No DMs in the last 30 min")
+              : t("Median {median} min · 90% within {p90} min", { median: data.dmWait.medianMin, p90: data.dmWait.p90Min ?? 0 })}
+          </p>
+          <p className="text-xs text-muted">
+            {t("Commenting now: ~{minutes} min", {
+              minutes: sentPerHour ? Math.round((recent / sentPerHour) * 60) : "—",
+            })}
+            {data.dmWait.oldestWaitingMin != null ? ` · ${t("oldest waiting {minutes} min", { minutes: data.dmWait.oldestWaitingMin })}` : ""}
           </p>
           <p className="text-xs font-semibold uppercase text-muted">{t("Last hour by account")}</p>
           <ul className="space-y-1 text-sm">
