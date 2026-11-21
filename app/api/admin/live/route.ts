@@ -27,9 +27,12 @@ export async function GET() {
       where: { workspaceId, updatedAt: { gte: since } },
       _count: true,
     }),
+    // Only this workspace's posts are counted below, but don't load other
+    // workspaces' payloads at all; direct Meta events may carry no workspace.
     prisma.webhookEvent.findMany({
-      where: { createdAt: { gte: since } },
+      where: { createdAt: { gte: since }, OR: [{ workspaceId }, { workspaceId: null }] },
       select: { payload: true },
+      take: 5000,
     }),
   ]);
 
