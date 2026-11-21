@@ -40,6 +40,14 @@ import {
   type InstagramContext,
 } from "@/lib/instagram/provider";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
+import { getAppUsage, SWEEP_SKIP_PCT } from "@/lib/meta/app-usage";
+
+/** Usage % that should stop a sweep now, or null. A reading older than 15
+ * minutes says nothing about now, and the sweep's first read refreshes it. */
+export function sweepBlockedAt(): number | null {
+  const u = getAppUsage();
+  return u && Date.now() - u.at <= 15 * 60_000 && u.pct >= SWEEP_SKIP_PCT ? u.pct : null;
+}
 
 // Only consider comments from the last few days — older ones are outside
 // Instagram's private-reply window anyway, so a DM to them would just fail.
@@ -99,12 +107,21 @@ export async function reconcileComments(): Promise<void> {
 
   const sinceMs = Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000;
   const tokenCache = new Map<string, InstagramContext | null>();
+  // Campaigns on the same post share one read of its comments per sweep.
+  const commentCache = new Map<string, Promise<InstagramComment[]>>();
 
   for (const automation of automations) {
+    // A sweep stopped mid-campaign for usage is caught here on the next one.
+    const blockedAt = sweepBlockedAt();
+    if (blockedAt != null) {
+      console.log(`[Comment sweep] Stopped: Meta app usage at ${blockedAt}%`);
+      break;
+    }
     const stat = await sweepCampaign({
       automation: automation,
       sinceMs: sinceMs,
       tokenCache: tokenCache,
+      commentCache: commentCache,
     }).catch(
       (error): SweepStat => ({
         campaign: automation.name,
@@ -123,6 +140,7 @@ async function sweepCampaign({
   automation,
   sinceMs,
   tokenCache,
+  commentCache,
 }: {
   automation: {
     id: string;
@@ -145,6 +163,7 @@ async function sweepCampaign({
   };
   sinceMs: number;
   tokenCache: Map<string, InstagramContext | null>;
+  commentCache: Map<string, Promise<InstagramComment[]>>;
 }): Promise<SweepStat> {
   const account = automation.instagramAccount;
   const stat: SweepStat = {
@@ -195,13 +214,20 @@ async function sweepCampaign({
   const queue = getDMQueue();
 
   for (const mediaId of mediaIds) {
-    let comments: InstagramComment[];
-    try {
-      comments = await getRecentMediaComments({
+    if (sweepBlockedAt() != null) break;
+    const key = `${account.id}:${mediaId}`;
+    let read = commentCache.get(key);
+    if (!read) {
+      read = getRecentMediaComments({
         context: accessToken,
         mediaId: mediaId,
         sinceMs: sinceMs,
       });
+      commentCache.set(key, read);
+    }
+    let comments: InstagramComment[];
+    try {
+      comments = await read;
     } catch (error) {
       stat.errors.push(`Comments ${mediaId}: ${errMessage(error)}`);
       continue;
@@ -261,9 +287,24 @@ async function sweepCampaign({
       return dmStopped && replyStopped;
     }).map((log) => log.commentId));
 
+    // Without a public reply to post, a person already DM'd by this campaign
+    // has nothing left to get, whichever comment they leave next.
+    const dmedSet = new Set<string>();
+    if (!automation.publicReplyEnabled) {
+      const sent = await prisma.dmLog.findMany({
+        where: {
+          automationId: automation.id,
+          OR: [{ status: "SENT" }, { dmDeliveryUnconfirmed: true }],
+          commenterId: { in: needsAction.map((c) => c.from!.id) },
+        },
+        select: { commenterId: true },
+      });
+      for (const log of sent) dmedSet.add(log.commenterId);
+    }
+
     // Oldest first, so whoever commented earliest gets answered first, capped.
     const fresh = needsAction
-      .filter((c) => !handledSet.has(c.id))
+      .filter((c) => !handledSet.has(c.id) && !dmedSet.has(c.from!.id))
       .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
       .slice(0, MAX_NEW_PER_SWEEP);
 

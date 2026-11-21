@@ -70,14 +70,16 @@ vi.mock("@/lib/meta/client", () => ({
   sendCommentReply: vi.fn(),
   MetaApiError: class MetaApiError extends Error {
     code: number;
+    subcode: number | undefined;
     constructor(
       code: number,
-      _subcode: number | undefined,
+      subcode: number | undefined,
       _fbTraceId: string | undefined,
       message: string
     ) {
       super(message);
       this.code = code;
+      this.subcode = subcode;
       this.name = "MetaApiError";
     }
   },
@@ -240,12 +242,12 @@ beforeEach(() => {
   mockPrisma.dmLog.findUnique.mockResolvedValue(null);
   mockPrisma.dmLog.create.mockResolvedValue({});
   // Two different lookups share findFirst: the cross-campaign private-reply
-  // check (keyed on status SENT) and the postback's name lookup. Only the
+  // check (keyed on its SENT-or-unconfirmed OR) and the postback's name lookup. Only the
   // latter should resolve by default, or every comment would look like a
   // duplicate of an already-answered one.
   mockPrisma.dmLog.findFirst.mockImplementation(
-    async (args: { where?: { status?: string } } = {}) =>
-      args.where?.status === "SENT" ? null : { commenterName: "commenter_user" }
+    async (args: { where?: { OR?: unknown } } = {}) =>
+      args.where?.OR ? null : { commenterName: "commenter_user" }
   );
   mockPrisma.dmLog.upsert.mockResolvedValue({});
   mockPrisma.dmLog.update.mockReset().mockResolvedValue({});
@@ -520,8 +522,8 @@ describe("DM Worker — Full Pipeline", () => {
   it("frees the slot at once when a job never reached Meta (dedup)", async () => {
     mockDelayForUsage.mockReturnValue(60_000);
     mockPrisma.dmLog.findFirst.mockImplementation(
-      async (args: { where?: { status?: string; commenterId?: string } } = {}) =>
-        args.where?.status === "SENT" && args.where.commenterId ? { id: "earlier" } : null
+      async (args: { where?: { OR?: unknown; commenterId?: string } } = {}) =>
+        args.where?.OR && args.where.commenterId ? { id: "earlier" } : null
     );
     const processor = getProcessor();
     await processor(createMockJob());
@@ -533,6 +535,23 @@ describe("DM Worker — Full Pipeline", () => {
 
     await processor(createMockJob());
     expect(mockSendPrivateReply).toHaveBeenCalled();
+  });
+
+  it("does not refund a comment attempt when a postback hits code 4", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue({ ...mockAutomation, trackedLinks: [] });
+    mockSendDirectMessage.mockRejectedValue(Object.assign(new RateLimitError("limit"), { code: 4 }));
+
+    await expect(getProcessor()(createMockPostbackJob())).rejects.toThrow("bullmq:rateLimitExceeded");
+    expect(mockPrisma.dmLog.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("pauses on code 4 from a follow-up instead of swallowing it", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue({ ...mockAutomation, followUpEnabled: true, followUpMessage: "thanks" });
+    mockSendDirectMessage.mockRejectedValue(Object.assign(new RateLimitError("limit"), { code: 4 }));
+
+    await expect(
+      getProcessor()({ name: "process-followup", id: "f1", attemptsMade: 0, data: { instagramAccountId: "ig_456", userId: "u1", automationId: "auto_789" } })
+    ).rejects.toThrow("bullmq:rateLimitExceeded");
   });
 
   it("spaces jobs: one arriving inside the gap is put back without running", async () => {
@@ -965,8 +984,8 @@ describe("DM Worker — Full Pipeline", () => {
 describe("DM Worker — one private reply per comment", () => {
   it("should skip a campaign when another already used the comment's private reply", async () => {
     mockPrisma.dmLog.findFirst.mockImplementation(
-      async (args: { where?: { status?: string } } = {}) =>
-        args.where?.status === "SENT"
+      async (args: { where?: { OR?: unknown } } = {}) =>
+        args.where?.OR
           ? { automation: { name: "openreply 1" } }
           : { commenterName: "commenter_user" }
     );
@@ -988,10 +1007,10 @@ describe("DM Worker — one private reply per comment", () => {
 
   it("should skip a person who already got this campaign's DM on another comment", async () => {
     mockPrisma.dmLog.findFirst.mockImplementation(
-      async (args: { where?: { status?: string; commenterId?: string } } = {}) =>
-        args.where?.status === "SENT" && args.where.commenterId
+      async (args: { where?: { OR?: unknown; commenterId?: string } } = {}) =>
+        args.where?.OR && args.where.commenterId
           ? { id: "earlier_log" }
-          : args.where?.status === "SENT" ? null : { commenterName: "commenter_user" }
+          : args.where?.OR ? null : { commenterName: "commenter_user" }
     );
 
     const processor = getProcessor();
@@ -1027,9 +1046,10 @@ describe("DM Worker — one private reply per comment", () => {
     );
 
     const processor = getProcessor();
-    await expect(processor(createMockJob())).rejects.toThrow(
-      "The comment is invalid for a private reply"
-    );
+    await expect(processor(createMockJob())).rejects.toMatchObject({
+      name: "UnrecoverableError",
+      message: expect.stringContaining("The comment is invalid for a private reply"),
+    });
 
     // The reserved rate slot must be handed back when the send fails, so a
     // comment that never delivered a DM does not burn slots on each retry.
@@ -1043,8 +1063,18 @@ describe("DM Worker — one private reply per comment", () => {
         data: expect.objectContaining({
           status: "FAILED",
           errorMessage: expect.stringContaining("The comment is invalid for a private reply"),
+          // Exhausted so the reconciler does not re-enqueue a comment Meta will never accept.
+          attempts: 3,
         }),
       })
+    );
+  });
+
+  it("treats a permanent rejection subcode as unrecoverable", async () => {
+    mockSendPrivateReply.mockRejectedValue(new MetaApiError(10, 2534014, undefined, "blocked"));
+    await expect(getProcessor()(createMockJob())).rejects.toMatchObject({ name: "UnrecoverableError" });
+    expect(mockPrisma.dmLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "FAILED", attempts: 3 }) })
     );
   });
 

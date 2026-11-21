@@ -123,6 +123,14 @@ const NON_TEMPLATE_REJECTIONS = [
   /requested user cannot be found/i,
 ];
 
+// The comment itself can never take a private reply: retrying only burns quota.
+function isPermanentCommentRejection(error: unknown): boolean {
+  if (error instanceof TokenExpiredError || error instanceof RateLimitError) return false;
+  return error instanceof MetaApiError &&
+    (NON_TEMPLATE_REJECTIONS.some((pattern) => pattern.test(error.message)) ||
+      error.subcode === 2534025 || error.subcode === 2534014);
+}
+
 function isTemplateRejection(error: unknown): boolean {
   if (
     error instanceof TokenExpiredError ||
@@ -512,7 +520,8 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     const privateReplyUsedBy = await prisma.dmLog.findFirst({
       where: {
         commentId,
-        status: "SENT",
+        // An unconfirmed send may have delivered: treat it as the reply being used.
+        OR: [{ status: "SENT" }, { dmDeliveryUnconfirmed: true }],
         automationId: { not: automation.id },
       },
       select: { automation: { select: { name: true } } },
@@ -537,7 +546,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       where: {
         automationId: automation.id,
         commenterId,
-        status: "SENT",
+        OR: [{ status: "SENT" }, { dmDeliveryUnconfirmed: true }],
         commentId: { not: commentId },
       },
       select: { id: true },
@@ -812,6 +821,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         if (rateLimit?.reserved) await releaseDMSlot(instagramAccountId);
         await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
       }
+      const permanent = isPermanentCommentRejection(sendError);
       await prisma.dmLog.update({
         where: { automationId_commentId: { automationId: automation.id, commentId } },
         data: {
@@ -819,8 +829,11 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           ...(delivered ? { dmSentAt: new Date() } : {}),
           errorMessage: formatError(sendError),
           dmDeliveryUnconfirmed: isDeliveryUnconfirmed(sendError),
+          // Exhaust attempts so the reconciler stops re-enqueueing it too.
+          ...(permanent ? { attempts: MAX_COMMENT_SEND_ATTEMPTS } : {}),
         },
       });
+      if (permanent) throw new UnrecoverableError(formatError(sendError));
       throw sendError;
     }
   }
@@ -1098,6 +1111,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
             }),
         });
       } catch (error) {
+        if (error instanceof RateLimitError && error.code === 4) throw error;
         console.log(
           "[DM Worker] Failed to re-send follow prompt:",
           formatError(error),
@@ -1288,6 +1302,7 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
       }),
     });
   } catch (error) {
+    if (error instanceof RateLimitError && error.code === 4) throw error;
     console.log(
       "[DM Worker] Failed to send follow-up message:",
       formatError(error)
@@ -1653,9 +1668,8 @@ export function createDMWorker(): Worker<DmQueueJob> {
         const pauseMs = delayForUsage(100);
         nextAllowedAt = Date.now() + pauseMs;
         console.warn(`[DM Worker] App rate limit hit, pausing queue ${pauseMs}ms`);
-        if (job.name !== FOLLOWUP_JOB_NAME && job.name !== MESSAGE_JOB_NAME) {
-          await refundQuotaAttempt((job.data as ProcessCommentJob).commentId);
-        }
+        const commentId = "commentId" in job.data ? (job.data as ProcessCommentJob).commentId : undefined;
+        if (commentId) await refundQuotaAttempt(commentId);
         await worker.rateLimit(pauseMs);
         throw Worker.RateLimitError();
       }
@@ -1672,7 +1686,8 @@ export function createDMWorker(): Worker<DmQueueJob> {
     }
   }, {
     connection: getRedisConnection(),
-    concurrency: Number(process.env.DM_WORKER_CONCURRENCY) || 5,
+    // The in-memory pacing gate assumes one job at a time: with more, bounced jobs set BullMQ's limitUntil and a no-call job's slot hand-back does nothing.
+    concurrency: Number(process.env.DM_WORKER_CONCURRENCY) || 1,
     settings: {
       backoffStrategy: (attemptsMade: number) =>
         BACKOFF_DELAYS[Math.min(attemptsMade - 1, BACKOFF_DELAYS.length - 1)],

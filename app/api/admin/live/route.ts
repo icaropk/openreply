@@ -16,7 +16,7 @@ export async function GET() {
   }
   const since = new Date(Date.now() - 3600e3);
 
-  const [usage, queue, latency, accounts, automations, logs, events, completed, waitingJobs] = await Promise.all([
+  const [usage, queue, latency, accounts, automations, logs, events, completed, waitingJobs, queuedJobs] = await Promise.all([
     getAppUsageReading(),
     getDMQueue().getJobCounts("waiting", "prioritized", "active", "delayed", "failed"),
     getCallLatency(),
@@ -38,6 +38,8 @@ export async function GET() {
     // times: comment arrival to DM, without any extra bookkeeping.
     getDMQueue().getJobs(["completed"], 0, 400),
     getDMQueue().getJobs(["waiting"], 0, 0, true),
+    // shortcut: at most 500 of each state, so inflow undercounts past that; page through if it ever binds.
+    getDMQueue().getJobs(["waiting", "prioritized"], 0, 499),
   ]);
 
   const accountName = new Map(accounts.map((a) => [a.id, a.username]));
@@ -77,15 +79,26 @@ export async function GET() {
       .slice(0, 8)
       .map(([name, count]) => ({ name, count }));
 
-  // Minutes from a webhook comment entering the queue to its job finishing,
-  // over the last 30 minutes (sweep catch-up is excluded: it waits on purpose).
+  // Time a webhook comment job waited, from enqueue to finish, over the last 30 min (sweeps and rate-limit requeues wait on purpose).
   const cutoff = Date.now() - 30 * 60e3;
   const waits = completed
-    .filter((j) => j.finishedOn && j.finishedOn >= cutoff && (j.data as { source?: string })?.source !== "POLLING")
+    .filter(
+      (j) =>
+        j?.name === "process-comment" &&
+        (j.data as { source?: string })?.source === "WEBHOOK" &&
+        !j.opts.delay &&
+        j.finishedOn &&
+        j.finishedOn >= cutoff
+    )
     .map((j) => (j.finishedOn! - j.timestamp) / 60e3)
     .sort((a, b) => a - b);
   const pick = (q: number) => (waits.length ? Math.round(waits[Math.min(waits.length - 1, Math.floor(q * waits.length))] * 10) / 10 : null);
   const oldestWaiting = waitingJobs[0] ? Math.round((Date.now() - waitingJobs[0].timestamp) / 6e3) / 10 : null;
+
+  // Drain in jobs, not DMs: the queue holds jobs, and many finish without a send (dedup, no keyword).
+  const hourAgo = since.getTime();
+  const outPerHour = completed.filter((j) => j?.name === "process-comment" && (j.finishedOn ?? 0) >= hourAgo).length;
+  const inPerHour = [...completed, ...queuedJobs].filter((j) => j?.name === "process-comment" && j.timestamp >= hourAgo).length;
 
   let meters: { calls: number; cpu: number; time: number } | null = null;
   if (usage) {
@@ -106,6 +119,7 @@ export async function GET() {
       commentsByPost: top(commentsByPost),
       latency,
       dmWait: { samples: waits.length, medianMin: pick(0.5), p90Min: pick(0.9), oldestWaitingMin: oldestWaiting },
+      drain: { inPerHour, outPerHour },
     },
   });
 }

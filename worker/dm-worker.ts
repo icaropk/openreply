@@ -1,9 +1,9 @@
 import { createDMWorker } from "@/lib/queue/dm-worker";
 import { recordAppUsageReading, recordCallLatencyReading, recordWorkerHeartbeat } from "@/lib/ops/worker-health";
-import { reconcileComments } from "@/lib/polling/comment-reconciler";
+import { reconcileComments, sweepBlockedAt } from "@/lib/polling/comment-reconciler";
 import { attachPendingNextReels } from "@/lib/automation/attach-next-reel";
 import os from "node:os";
-import { getAppUsage, onAppUsage, onCallLatency, SWEEP_SKIP_PCT } from "@/lib/meta/app-usage";
+import { onAppUsage, onCallLatency } from "@/lib/meta/app-usage";
 
 const worker = createDMWorker();
 
@@ -42,11 +42,11 @@ async function poll() {
     if (attached.bound > 0 || attached.failedAccounts > 0) {
       console.log("[DM Worker] Next-reel attachment:", attached);
     }
-    // No reading yet (fresh boot) counts as unknown: a full sweep is the
-    // heaviest thing the worker does, so wait for the first DM to read the meter.
-    const pct = getAppUsage()?.pct;
-    if (pct == null || pct >= SWEEP_SKIP_PCT) {
-      console.log(`[DM Worker] Skipping comment sweep: Meta app usage at ${pct ?? "unknown"}%`);
+    // No or stale reading is allowed: the sweep's first read refreshes the meter
+    // and the reconciler stops itself once usage is high.
+    const blockedAt = sweepBlockedAt();
+    if (blockedAt != null) {
+      console.log(`[DM Worker] Skipping comment sweep: Meta app usage at ${blockedAt}%`);
       return;
     }
     await reconcileComments();

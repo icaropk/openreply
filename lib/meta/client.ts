@@ -327,6 +327,7 @@ export async function getUserFollowStatus(
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    recordAppUsage(response.headers?.get?.("x-app-usage"));
     if (!response.ok) return null;
     const data = await response.json();
     return typeof data?.is_user_follow_business === "boolean"
@@ -358,6 +359,7 @@ export async function getUserUsername(
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    recordAppUsage(response.headers?.get?.("x-app-usage"));
     if (!response.ok) return null;
     const data = await response.json();
     return typeof data?.username === "string" && data.username

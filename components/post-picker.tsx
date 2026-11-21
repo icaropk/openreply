@@ -77,6 +77,8 @@ export default function PostPicker({
       setLoading(false);
     }
     /* eslint-enable react-hooks/set-state-in-effect */
+    // Every Meta call spends the shared app-wide budget; a fresh cache is enough.
+    if (cached.data && !cached.stale) return;
 
     fetch(`/api/instagram/posts${params.size ? `?${params}` : ""}`)
       .then((r) => r.json())

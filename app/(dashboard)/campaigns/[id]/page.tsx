@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
+import { readCache } from "@/lib/client-cache";
 
 interface Campaign {
   id: string;
@@ -95,6 +96,28 @@ export default function CampaignDetailPage() {
       .catch(() => setAvatarUrl(null));
 
     if (campaign.postId) {
+      // Reuse the thumbnail the campaigns list or post picker already cached
+      // (same keys and max age) instead of spending Meta budget on a refetch.
+      const media = readCache<{ thumbs: Record<string, string> }>(
+        `ig-media:${acct}`,
+        15 * 60 * 1000
+      );
+      const posts = readCache<
+        { id: string; thumbnail_url?: string; media_url?: string }[]
+      >(`ig-posts:${acct}`, 15 * 60 * 1000);
+      const post = posts.stale
+        ? undefined
+        : posts.data?.find((p) => p.id === campaign.postId);
+      const cachedThumb =
+        (media.stale ? undefined : media.data?.thumbs[campaign.postId]) ??
+        post?.thumbnail_url ??
+        post?.media_url;
+      if (cachedThumb) {
+        // Hydrating state from cache is a legitimate effect use here.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setPostThumb(cachedThumb);
+        return;
+      }
       fetch(`/api/instagram/posts?instagramAccountId=${acct}&limit=50`)
         .then((r) => r.json())
         .then((payload) => {

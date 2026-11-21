@@ -13,6 +13,7 @@ interface LiveData {
   commentsByPost: Array<{ name: string; count: number }>;
   latency: Array<{ kind: string; calls: number; avgMs: number }>;
   dmWait: { samples: number; medianMin: number | null; p90Min: number | null; oldestWaitingMin: number | null };
+  drain: { inPerHour: number; outPerHour: number };
 }
 
 const REFRESH_MS = 15_000;
@@ -87,15 +88,13 @@ export default function LivePanel() {
   const recent = (data.queue.waiting ?? 0) + (data.queue.active ?? 0);
   const backlog = (data.queue.prioritized ?? 0) + (data.queue.delayed ?? 0);
   const pace = data.usage ? Math.round((60_000 / delayForUsage(data.usage.pct)) * 10) / 10 : null;
-  // Drain estimate from the last hour: comments on campaign posts in (an upper
-  // bound: not every comment has the keyword) and DMs sent out.
-  const sentPerHour = Object.values(data.byAccount).reduce((sum, c) => sum + (c.SENT ?? 0), 0);
-  const inPerHour = data.commentsByPost.reduce((sum, row) => sum + row.count, 0);
+  // Drain estimate from the last hour's comment jobs in and out, the same unit the queue counts.
+  const { inPerHour, outPerHour } = data.drain;
   const total = recent + backlog;
   // Comments keep arriving while the queue drains, so it empties at the net rate.
-  const netPerHour = sentPerHour - inPerHour;
+  const netPerHour = outPerHour - inPerHour;
   const hoursToEmpty = netPerHour > 0 ? total / netPerHour : null;
-  const hoursIfStopped = sentPerHour ? total / sentPerHour : null;
+  const hoursIfStopped = outPerHour ? total / outPerHour : null;
   const readingAge = data.usage ? Math.round((Date.parse(data.at) - data.usage.at) / 60_000) : null;
 
   return (
@@ -138,7 +137,7 @@ export default function LivePanel() {
             </div>
           </div>
           <p className="text-xs text-muted">
-            {t("In ~{in}/h · out {out}/h", { in: inPerHour, out: sentPerHour })}
+            {t("In ~{in}/h · out {out}/h", { in: inPerHour, out: outPerHour })}
             {" · "}
             {total === 0
               ? t("Queue empty")
@@ -156,7 +155,7 @@ export default function LivePanel() {
           </p>
           <p className="text-xs text-muted">
             {t("Commenting now: ~{minutes} min", {
-              minutes: sentPerHour ? Math.round((recent / sentPerHour) * 60) : "—",
+              minutes: outPerHour ? Math.round((recent / outPerHour) * 60) : "—",
             })}
             {data.dmWait.oldestWaitingMin != null ? ` · ${t("oldest waiting {minutes} min", { minutes: data.dmWait.oldestWaitingMin })}` : ""}
           </p>

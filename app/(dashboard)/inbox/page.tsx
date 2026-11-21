@@ -18,7 +18,8 @@ import { readCache, writeCache } from "@/lib/client-cache";
 import type { ConversationListItem } from "@/app/api/instagram/conversations/route";
 import type { ThreadMessage } from "@/app/api/instagram/conversations/[id]/route";
 
-const POLL_MS = 12_000;
+// Each poll is a Meta Graph call against the shared app-wide budget.
+const POLL_MS = 60_000;
 // Cached list/threads are shown instantly on revisit, then revalidated in the
 // background. The Instagram Conversations API is slow (often several seconds),
 // so this is what makes the inbox feel fast after the first load.
@@ -141,8 +142,15 @@ export default function InboxPage() {
       setConvLoading(true);
     }
     void loadConversations(Boolean(cached.data));
-    const timer = window.setInterval(() => void loadConversations(true), POLL_MS);
-    return () => window.clearInterval(timer);
+    const refresh = () => {
+      if (!document.hidden) void loadConversations(true);
+    };
+    const timer = window.setInterval(refresh, POLL_MS);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [selectedAccountId, loadConversations]);
 
   const loadMessages = useCallback(
@@ -186,11 +194,15 @@ export default function InboxPage() {
       setThreadLoading(true);
     }
     void loadMessages(activeId, Boolean(cached.data));
-    const timer = window.setInterval(
-      () => void loadMessages(activeId, true),
-      POLL_MS
-    );
-    return () => window.clearInterval(timer);
+    const refresh = () => {
+      if (!document.hidden) void loadMessages(activeId, true);
+    };
+    const timer = window.setInterval(refresh, POLL_MS);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [activeId, active?.detailsUnavailable, loadMessages]);
 
   // Keep the thread pinned to the latest message.

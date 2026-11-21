@@ -6,6 +6,7 @@ import {
   MetaApiError,
 } from "@/lib/instagram/provider";
 import { createInstagramContext } from "@/lib/instagram/provider";
+import { getAppUsageReading } from "@/lib/ops/worker-health";
 
 export interface ThreadMessage {
   id: string;
@@ -41,6 +42,14 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
     return NextResponse.json(
       { success: false, error: "Instagram account not connected." },
       { status: 400 }
+    );
+  }
+
+  // Inbox reads share the app-wide Meta budget with DM sends; yield when it is nearly spent.
+  if (((await getAppUsageReading().catch(() => null))?.pct ?? 0) >= 90) {
+    return NextResponse.json(
+      { success: false, error: "Meta quota is busy; showing cached inbox" },
+      { status: 503 }
     );
   }
 

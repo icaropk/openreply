@@ -144,6 +144,8 @@ export default function CampaignsPage() {
       setVideos(cached.data.videos);
     }
     /* eslint-enable react-hooks/set-state-in-effect */
+    // Every Meta call spends the shared app-wide budget; a fresh cache is enough.
+    if (cached.data && !cached.stale) return;
 
     Promise.all(
       accountIds.map((accountId) =>
